@@ -3,3 +3,5 @@ kicad/**/fp-info-cache
 kicad/**/*.gbr
 kicad/**/*-bak
 kicad/**/*.zip
+
+*.bin
