@@ -15,4 +15,4 @@
 - During reset the ROM is remapped to 0x000000 so that the initial SP and PC can be loaded from ROM. Any read operation which triggers A23 to high disables the remapping of the ROM and the normal memory map is activated until the next reset.
 
 ### 2025-09-18
-- Searched for second 2816 in old moving boxes. Found one in an other old sbc project. Since this is not the missing low byte EEPROM, there is no change to test the 68000 without writing new code first.
+- Searched for second 2816 in old moving boxes. Found one in an other old sbc project. Since this is not the missing low byte EEPROM, there is no chance to test the 68000 without writing new code first.
