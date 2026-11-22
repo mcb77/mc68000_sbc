@@ -26,14 +26,16 @@ which leaves the LED on. A word read tested with `AND.W #1` is the pin.
 
 ## Load a block
 
-- [ ] Add `load <addr>,<count>`. Parse the header with the line reader, then
-      take `count` raw bytes into memory. Reply once with the byte sum and
-      `Ok`.
-- [ ] Count is the number of bytes. Raw bytes bypass `SERIAL_RX_STRING`. The
+- [x] `load <addr>,<count>` parses the header with the line reader, then
+      takes `count` raw bytes into memory. The reply is the byte sum, a line
+      feed, and `Ok`.
+- [x] Count is the number of bytes. Raw bytes bypass `SERIAL_RX_STRING`. The
       line buffer is 32 bytes and cannot hold a hex record.
-- [ ] Teach `upload_binary.py` to use `load`. At 9600 a raw stream is about a
-      kilobyte per second, so the BASIC image lands in about eight seconds.
-- [ ] Reject a count that would run into the monitor stack at `$00F000`.
+- [x] `upload_binary.py` sends `load` and waits for the sum. At 9600 a raw
+      stream is about a kilobyte per second, so the BASIC image lands in
+      about eight seconds.
+- [x] A range that would run into the monitor stack at `$00F000` is `Error`,
+      before any raw byte is read.
 
 ## Fixed entries for uploaded code
 

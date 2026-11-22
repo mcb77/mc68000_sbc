@@ -774,6 +774,20 @@ NOT_JUMP:
     BRA MONITOR
 NOT_CHECKSUM:
     MOVE.L A0,A1
+    CMP.B #'l',(A1)+
+    BNE.S NOT_LOAD
+    CMP.B #'o',(A1)+
+    BNE.S NOT_LOAD
+    CMP.B #'a',(A1)+
+    BNE.S NOT_LOAD
+    CMP.B #'d',(A1)+
+    BNE.S NOT_LOAD
+    CMP.B #' ',(A1)+
+    BNE.S NOT_LOAD
+    JSR PARSE_LOAD
+    BRA MONITOR
+NOT_LOAD:
+    MOVE.L A0,A1
     CMP.B #'h',(A1)+
     BNE.S NOT_HOLD
     CMP.B #'o',(A1)+
@@ -954,6 +968,47 @@ PC_ERROR:
     JSR SERIAL_STRING
 PC_DONE:
     MOVEM.L (SP)+,D0-D1/A0-A1
+    RTS
+
+; --- load <addr>,<count> then count raw bytes ---
+; Count is the number of bytes, not the DBRA trip count used by checksum.
+; The range must end at or below $00F000. The host waits until this parse
+; has entered SERIAL_RX before sending the first raw byte.
+PARSE_LOAD:
+    MOVEM.L D0-D2/A0-A1,-(SP)
+    JSR PARSE_ADDRN
+    CMP.B #',',D1
+    BNE.S PL_ERROR
+    JSR PARSE_COUNTN
+    CMP.B #$00,D1
+    BNE.S PL_ERROR
+    TST.L D0
+    BEQ.S PL_ERROR
+    MOVE.L A0,D1
+    ADD.L D0,D1
+    BCS.S PL_ERROR
+    CMP.L #$0000F000,A0
+    BCC.S PL_ERROR
+    CMP.L #$0000F000,D1
+    BHI.S PL_ERROR
+    CLR.L D2
+    SUBQ.L #1,D0
+PL_LOOP:
+    JSR SERIAL_RX
+    MOVE.B D1,(A0)+
+    ADD.L D1,D2
+    DBRA D0,PL_LOOP
+    MOVE.L D2,D1
+    JSR HEX_LWORD
+    JSR NEW_LINE
+    LEA OK,A0
+    JSR SERIAL_STRING
+    BRA.S PL_DONE
+PL_ERROR:
+    LEA ERROR,A0
+    JSR SERIAL_STRING
+PL_DONE:
+    MOVEM.L (SP)+,D0-D2/A0-A1
     RTS
 
 ; --- Print "help" ---
@@ -1158,6 +1213,7 @@ HELP:
     DC.B " - dump <addr>,<count>",10
     DC.B " - hold",10
     DC.B " - jump <addr>",10
+    DC.B " - load <addr>,<count>",10
     DC.B " - ramtest",10
     DC.B " - read <addr>",10
     DC.B " - release",10

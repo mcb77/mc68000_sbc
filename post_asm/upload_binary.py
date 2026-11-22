@@ -2,17 +2,24 @@ import serial
 import sys
 import time
 
-def open_serial_port(port, baud=9600, timeout=0.1):
-    """Open serial port with specified settings."""
+def open_serial_port(port, baud=9600):
+    """Open the Arduino bridge without pulsing DTR or RTS."""
     try:
-        ser = serial.Serial(
-            port=port,
-            baudrate=baud,
-            bytesize=serial.EIGHTBITS,
-            parity=serial.PARITY_NONE,
-            stopbits=serial.STOPBITS_ONE,
-            timeout=timeout
-        )
+        ser = serial.Serial()
+        ser.port = port
+        ser.baudrate = baud
+        ser.bytesize = serial.EIGHTBITS
+        ser.parity = serial.PARITY_NONE
+        ser.stopbits = serial.STOPBITS_ONE
+        ser.timeout = 0
+        ser.write_timeout = 5
+        ser.dtr = False
+        ser.rts = False
+        ser.open()
+        ser.dtr = False
+        ser.rts = False
+        time.sleep(2.0)
+        ser.reset_input_buffer()
         print(f"Opened serial port {port}")
         return ser
     except serial.SerialException as e:
@@ -57,21 +64,55 @@ def send_command(ser, command, timeout=0.1):
     response = read_line(ser, timeout)
     return response
 
-def upload_binary(ser, filename, start_addr,execute):
-    """Upload binary file to SBC and jump to start address."""
-    data = read_binary_file(filename)
+def read_until(ser, needle, timeout):
+    """Read until needle is present or the timeout expires."""
+    buf = b""
+    end = time.time() + timeout
+    while time.time() < end and needle not in buf:
+        waiting = ser.in_waiting
+        if waiting:
+            buf += ser.read(waiting)
+        else:
+            time.sleep(0.01)
+    return buf
 
-    # Send write commands
-    addr = start_addr
-    for byte in data:
-        command = f"write {addr:06X},{byte:02X}"
-        print(f"Sending: {command}")
-        response = send_command(ser, command)
-        print(f"Response: {response}")
-        if "Error" in response:
-            print(f"Error from SBC: {response}")
+def upload_binary(ser, filename, start_addr,execute):
+    """Upload binary file with load and jump to the start address."""
+    data = read_binary_file(filename)
+    if not data:
+        print("Error: file is empty")
+        return False
+
+    # The monitor stack occupies $00F000 and up. load refuses that range.
+    if start_addr < 0 or start_addr + len(data) > 0xF000:
+        print("Error: image would run into the monitor stack at $00F000")
+        return False
+
+    offset = 0
+    while offset < len(data):
+        chunk = data[offset:offset + 0xFFFF]
+        addr = start_addr + offset
+        command = f"load {addr:06X},{len(chunk):04X}"
+        print(f"Sending: {command} ({len(chunk)} bytes)")
+        ser.write((command + "\n").encode("ascii"))
+        ser.flush()
+        # The header is parsed from the line buffer before SERIAL_RX runs.
+        time.sleep(0.02)
+        ser.write(chunk)
+        ser.flush()
+        # 8 hex digits, LF, Ok, LF. About 1 ms per payload byte, plus reply.
+        timeout = 5 + len(chunk) / 800
+        response = read_until(ser, b"Ok\n", timeout)
+        text = response.decode("latin1", "replace")
+        print(f"Response: {text!r}")
+        if b"Error" in response or b"Ok\n" not in response:
+            print("Error from SBC")
             return False
-        addr += 1
+        expect = f"{sum(chunk) & 0xFFFFFFFF:08X}"
+        if expect.encode("ascii") not in response:
+            print(f"Checksum mismatch, expected {expect}")
+            return False
+        offset += len(chunk)
 
     print("Upload successful")
 
