@@ -91,6 +91,16 @@ def read_reply(ser, timeout):
         response += read_until(ser, b"\n", 1.0)
     return response
 
+def wait_prompt(ser):
+    """Require the monitor prompt before a load. A stuck load stays silent."""
+    ser.write(b"\n")
+    ser.flush()
+    buf = read_until(ser, b"\n", 2.0)
+    if b">" not in buf:
+        print(f"No prompt, got {buf!r}")
+        return False
+    return True
+
 def upload_binary(ser, filename, start_addr,execute):
     """Upload binary file with load and jump to the start address."""
     data = read_binary_file(filename)
@@ -103,18 +113,35 @@ def upload_binary(ser, filename, start_addr,execute):
         print("Error: image would run into the monitor stack at $00F000")
         return False
 
+    # Each load has to finish and print Ok. A 256-byte write overflows the
+    # Uno's serial buffer, the monitor stays in SERIAL_RX, and the next
+    # command is eaten as payload. 32 bytes fits that buffer.
+    if not wait_prompt(ser):
+        return False
+
     offset = 0
     while offset < len(data):
-        chunk = data[offset:offset + 0xFFFF]
+        chunk = data[offset:offset + 0x20]
         addr = start_addr + offset
         command = f"load {addr:06X},{len(chunk):04X}"
         print(f"Sending: {command} ({len(chunk)} bytes)")
         ser.write((command + "\n").encode("ascii"))
         ser.flush()
         # The header is parsed from the line buffer before SERIAL_RX runs.
-        time.sleep(0.02)
-        ser.write(chunk)
-        ser.flush()
+        # A gap here is required: the bytes are still moving through the
+        # Uno after flush returns.
+        time.sleep(0.2)
+        early = ser.read(ser.in_waiting or 0)
+        if b"Error" in early:
+            print(f"Response: {early!r}")
+            print("Error from SBC")
+            return False
+        # One byte at a time. A burst fills the Uno while the monitor
+        # replies, and SoftwareSerial then stops delivering bytes.
+        for byte in chunk:
+            ser.write(bytes([byte]))
+            ser.flush()
+            time.sleep(0.003)
         # 8 hex digits, LF, Ok, LF, then the prompt line. About 1 ms per payload byte.
         timeout = 5 + len(chunk) / 800
         response = read_reply(ser, timeout)
@@ -196,6 +223,7 @@ def main():
                 response = read_line(ser, timeout=2)
         else:
             print("Upload failed")
+            sys.exit(1)
 
     finally:
         ser.close()

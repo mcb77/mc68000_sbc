@@ -321,19 +321,12 @@ DELAY_LOOP:
 ; Input: $200000 bit 0 (RX pin, adjust as needed)
 ; Uses: Stack for subroutines, 4.8 MHz clock
 ; ========================================
-; Blocking receive. A bad stop bit goes back to the start-bit wait.
-; D0 on the stack is the timeout: -1 waits forever. SERIAL_RX_TIMED
-; stores a poll count there and returns -1 in D1.B on timeout or a bad
-; stop. The sample delays below are the same on both entries.
-RX_TIMEOUT SET 2000                   ; about 40 ms of start-bit polls
-
+; Caller's D0/D2-D4 are preserved. D1.B is the byte.
+; A bad stop bit goes back to the start-bit wait.
+; The poll, the #35 and #23 delays, and the four NOPs are the tuned
+; sequence. Timeout handling lives in SERIAL_RX_TIMED, not here.
 SERIAL_RX:
-    MOVEQ #-1,D0
-    BRA.S RX_SAVE
-SERIAL_RX_TIMED:
-    MOVE.L #RX_TIMEOUT,D0
-RX_SAVE:
-    MOVEM.L D0/D2-D4,-(SP)    ; (SP) is the timeout
+    MOVEM.L D0/D2-D4,-(SP)    ; Save registers
     ; --- Wait for start bit (0 = low) ---
 SERIAL_RX_WAIT_START:
     MOVE.W ($200000),D4       ; Read RX pin
@@ -343,15 +336,8 @@ SERIAL_RX_WAIT_START:
     NOP
     NOP
     AND.W #1,D4
-    BEQ.S SERIAL_RX_START
-    TST.L (SP)
-    BMI.S SERIAL_RX_WAIT_START          ; -1: wait forever
-    SUBQ.L #1,(SP)
-    BNE.S SERIAL_RX_WAIT_START
-    MOVEQ #-1,D1
-    BRA.S SERIAL_RX_EXIT
+    BNE.S SERIAL_RX_WAIT_START          ; Loop until low
 
-SERIAL_RX_START:
     ; --- 1.5 bit delay to sample mid-bit ---
     MOVE.L #35,D0             ; ~750 cycles (1.5 bit)
 SERIAL_RX_START_DELAY:
@@ -388,20 +374,73 @@ SERIAL_RX_BIT_DELAY:
     NOP
     AND.W #1,D4
     CMP.W #1,D4               ; Verify stop bit
-    BEQ.S SERIAL_RX_EXIT
-    TST.L (SP)
-    BMI.S SERIAL_RX_WAIT_START          ; blocking: resync
-    MOVEQ #-1,D1
-SERIAL_RX_EXIT:
+    BNE.S SERIAL_RX_WAIT_START          ; Invalid, restart
     MOVEM.L (SP)+,D0/D2-D4    ; Restore registers
     RTS
 
-; Sample the shared pin and return. Bit 0 of D1 is the pin, Z reflects it.
-; A word read: the latch is on D0, not the even byte. Does not wait.
+; Sample RX and return. Bit 0 of D1 is the pin, Z reflects it.
+; A word read of the 74LS541: the pin is D0 of the word, not the even byte.
+; Does not wait. Does not change D0.
 SERIAL_POLL:
     MOVEQ #0,D1
     MOVE.W ($200000),D1
     AND.W #1,D1
+    RTS
+
+; Timed receive. Same bit delays as SERIAL_RX once the start edge is seen.
+; The start-bit poll also counts down, so it is not the tuned wait.
+; Returns -1 in D1.B on timeout or a bad stop. Preserves D0/D2-D4.
+RX_TIMEOUT SET 2000                   ; about 40 ms of start-bit polls
+SERIAL_RX_TIMED:
+    MOVEM.L D0/D2-D4,-(SP)    ; Save registers
+    MOVE.L #RX_TIMEOUT,-(SP)
+TIMED_WAIT:
+    MOVE.W ($200000),D4       ; Read RX pin
+    NOP
+    NOP
+    NOP
+    NOP
+    AND.W #1,D4
+    BEQ.S TIMED_START
+    SUBQ.L #1,(SP)
+    BNE.S TIMED_WAIT
+    MOVEQ #-1,D1
+    BRA.S TIMED_EXIT
+TIMED_START:
+    MOVE.L #35,D0             ; ~750 cycles (1.5 bit)
+TIMED_START_DELAY:
+    SUBQ.L #1,D0
+    BNE.S TIMED_START_DELAY
+    MOVEQ #8,D3
+    MOVEQ #0,D1
+TIMED_LOOP:
+    MOVE.W ($200000),D4
+    NOP
+    NOP
+    NOP
+    NOP
+    AND.W #1,D4
+    LSL.B #7,D4
+    LSR.B #1,D1
+    OR.B D4,D1
+    MOVE.L #23,D0
+TIMED_BIT_DELAY:
+    SUBQ.L #1,D0
+    BNE.S TIMED_BIT_DELAY
+    SUBQ.B #1,D3
+    BNE.S TIMED_LOOP
+    MOVE.W ($200000),D4
+    NOP
+    NOP
+    NOP
+    NOP
+    AND.W #1,D4
+    CMP.W #1,D4
+    BEQ.S TIMED_EXIT
+    MOVEQ #-1,D1
+TIMED_EXIT:
+    ADDQ.L #4,SP
+    MOVEM.L (SP)+,D0/D2-D4
     RTS
 
 ; ========================================
