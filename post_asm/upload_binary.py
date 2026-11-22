@@ -76,6 +76,21 @@ def read_until(ser, needle, timeout):
             time.sleep(0.01)
     return buf
 
+def read_reply(ser, timeout):
+    """Read through Ok and the prompt line that follows it.
+
+    The monitor prints eight hex digits, LF, Ok, LF, then "> " and LF.
+    Stopping at Ok leaves the prompt line in the UART buffer, and the next
+    read_line takes that line instead of the next command's reply.
+    """
+    response = read_until(ser, b"Ok\n", timeout)
+    if b"Ok\n" not in response:
+        return response
+    tail = response.split(b"Ok\n", 1)[1]
+    if b"\n" not in tail:
+        response += read_until(ser, b"\n", 1.0)
+    return response
+
 def upload_binary(ser, filename, start_addr,execute):
     """Upload binary file with load and jump to the start address."""
     data = read_binary_file(filename)
@@ -100,9 +115,9 @@ def upload_binary(ser, filename, start_addr,execute):
         time.sleep(0.02)
         ser.write(chunk)
         ser.flush()
-        # 8 hex digits, LF, Ok, LF. About 1 ms per payload byte, plus reply.
+        # 8 hex digits, LF, Ok, LF, then the prompt line. About 1 ms per payload byte.
         timeout = 5 + len(chunk) / 800
-        response = read_until(ser, b"Ok\n", timeout)
+        response = read_reply(ser, timeout)
         text = response.decode("latin1", "replace")
         print(f"Response: {text!r}")
         if b"Error" in response or b"Ok\n" not in response:
@@ -113,6 +128,19 @@ def upload_binary(ser, filename, start_addr,execute):
             print(f"Checksum mismatch, expected {expect}")
             return False
         offset += len(chunk)
+
+    # checksum's count is the byte count. Eight digits cover the whole image.
+    command = f"checksum {start_addr:08X},{len(data):08X}"
+    print(f"Sending: {command}")
+    ser.write((command + "\n").encode("ascii"))
+    ser.flush()
+    response = read_reply(ser, 5)
+    text = response.decode("latin1", "replace")
+    print(f"Response: {text!r}")
+    expect = f"{sum(data) & 0xFFFFFFFF:08X}"
+    if b"Error" in response or b"Ok\n" not in response or expect.encode("ascii") not in response:
+        print(f"Checksum mismatch, expected {expect}")
+        return False
 
     print("Upload successful")
 

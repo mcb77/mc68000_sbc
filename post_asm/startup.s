@@ -671,25 +671,29 @@ DELAY1S_LOOP:
 ; ========================================
 ; CHECKSUM
 ; Input: A0 = start address, D0.L = byte count
+; Walks exactly D0 bytes. A count of zero prints a sum of zero.
+; Reply: eight hex digits, LF, "Ok", LF.
 ; ========================================
 CHECKSUM:
     MOVEM.L D0-D2/A0,-(SP) ; Save registers
 
     CLR.L D1                         ; Sum accumulator
-    CLR.L D2                         ; Also clear the whole D2 so we can use MOVE.B
+    CLR.L D2                         ; MOVE.B leaves the high bytes of D2
 
     TST.L D0
-    BEQ CHECKSUM_DONE
+    BEQ.S CHECKSUM_DONE
 
 CHECKSUM_LOOP:
     MOVE.B (A0)+,D2                  ; Read byte
     ADD.L D2,D1                      ; Add to sum
-    DBRA D0,CHECKSUM_LOOP
+    SUBQ.L #1,D0
+    BNE.S CHECKSUM_LOOP
 
 CHECKSUM_DONE:
-
     JSR HEX_LWORD       ; print sum in D1
     JSR NEW_LINE
+    LEA OK,A0
+    JSR SERIAL_STRING
 
     MOVEM.L (SP)+,D0-D2/A0
     RTS
@@ -1001,7 +1005,7 @@ PARSE_CHECKSUM:
     JSR PARSE_ADDRN           ; Get address in A0
     CMP.B #',',D1
     BNE.S PC_ERROR
-    JSR PARSE_COUNTN          ; Get count in D0
+    JSR PARSE_COUNT8          ; Get byte count in D0
     CMP.B #$00,D1
     BNE.S PC_ERROR
     JSR CHECKSUM
@@ -1014,7 +1018,8 @@ PC_DONE:
     RTS
 
 ; --- load <addr>,<count> then count raw bytes ---
-; Count is the number of bytes, not the DBRA trip count used by checksum.
+; Count is the number of bytes. The receive loop is a 16-bit DBRA, so the
+; four-digit parser is also the maximum (65535).
 ; The range must end at or below $00F000. The host waits until this parse
 ; has entered SERIAL_RX before sending the first raw byte.
 PARSE_LOAD:
@@ -1145,6 +1150,33 @@ PC2_INVALID:
     MOVE.B (A1)+,D1
     RTS
 
+; --- Parse 1-8 digit hex count at A1 into D0, return next char in D1 ---
+; Used by checksum. A long countdown has no 16-bit DBRA limit.
+PARSE_COUNT8:
+    MOVEQ #0,D0
+    MOVEQ #8,D2
+    MOVEQ #0,D3
+PC8_LOOP:
+    MOVE.B (A1),D1
+    JSR HEX_TO_NIBBLE
+    CMP.B #-1,D1
+    BEQ.S PC8_END
+    LSL.L #4,D0
+    OR.B D1,D0
+    ADDQ.B #1,D3
+    ADDQ.L #1,A1
+    SUBQ.B #1,D2
+    BNE.S PC8_LOOP
+PC8_END:
+    TST.B D3
+    BEQ.S PC8_INVALID
+    MOVE.B (A1)+,D1
+    RTS
+PC8_INVALID:
+    MOVE.L #0,D0
+    MOVE.B (A1)+,D1
+    RTS
+
 ; --- Parse 1-4 digit hex count at A1 into D0, return next char in D1 ---
 PARSE_COUNTN:
     MOVEQ #0,D0               ; Clear result
@@ -1245,7 +1277,7 @@ POST_ROM_OK:
 WELCOME:
     DC.B "Simple 68000 Monitor. Type 'help' for help.",10,0
 PROMPT:
-    DC.B "> ",0
+    DC.B "> ",10,0
 ERROR:
     DC.B "Error",10,0
 OK:

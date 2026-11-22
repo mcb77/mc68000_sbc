@@ -13,12 +13,13 @@ Measured on the current burn, 9600 8N1, `/dev/ttyACM0`:
 - A guest that never `RTS` owns the serial line until the reset button.
   POST then fills `$000400`–`$00FFFF` and leaves the last pattern there, so a
   payload anywhere above the vector page is gone. The BASIC image is at
-  `$4400` and the core at `$8000`.
-- `checksum` is a `DBRA` loop, so the count argument is one less than the
-  number of bytes. `checksum 004400,1EE1` sums the 7906-byte image.
-- Success for `write` is the bytes `Ok` LF. The prompt is `"> "` with no
-  newline, so it sits in front of the next reply. `checksum` prints eight hex
-  digits and a line feed, and no `Ok`.
+  `$4800` and the core at `$8000`.
+
+In this source, `checksum <addr>,<count>` walks `count` bytes. `count` is the
+byte count. `checksum 00004800,00001EE2` sums the 7906-byte image. The reply
+is eight hex digits, a line feed, `Ok`, and a line feed. The prompt is `"> "`
+and a line feed, so a reader that stops at a line feed takes one reply.
+Success for `write` is the bytes `Ok` LF, then that line.
 
 Latch bit 0 at `$200000` is TX, RX, and the LED. Idle mark is `MOVE.W #1`,
 which leaves the LED on. A word read tested with `AND.W #1` is the pin.
@@ -72,13 +73,13 @@ Nothing is restored. There is no untested gap to hide a signature in, so
 
 ## One reply shape
 
-- [ ] `checksum` walks `count` bytes. The count is the byte count, not the
+- [x] `checksum` walks `count` bytes. The count is the byte count, not the
       `DBRA` trip count. A long countdown, so a 16-bit `DBRA` is not the limit.
-- [ ] Print the eight hex digits, a line feed, then `Ok` and a line feed.
-- [ ] Print the prompt as its own line, `"> "` followed by a line feed, so a
+- [x] Print the eight hex digits, a line feed, then `Ok` and a line feed.
+- [x] Print the prompt as its own line, `"> "` followed by a line feed, so a
       reader that stops at a line feed takes one reply and nothing from the
       next one.
-- [ ] Update `upload_binary.py` for the new checksum count and the prompt line.
+- [x] Update `upload_binary.py` for the new checksum count and the prompt line.
 
 ## Return from jump
 
