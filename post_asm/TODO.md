@@ -90,11 +90,12 @@ shared pin low. The one-second wait is the whole turnaround on a small test.
 
 ## Line buffer
 
-`BUFFER` is `$2000`, 32 bytes. That address is inside the 16 KB guest window
-the emulator uses at `$000400`, so every monitor command writes guest RAM.
+`BUFFER` is `$000408`, 32 bytes, the first free bytes after the hold marker.
+POST has finished by the time the monitor uses it. The string reader writes
+the terminating zero at `$000428`.
 
-- [ ] Move the buffer into the system page at `$000400`, after the hold
-      signature. POST has finished by the time the monitor uses the buffer.
+- [x] Move the buffer into the system page at `$000400`, after the hold
+      signature.
 - [ ] Give it room for a longer header if `load` needs one. The raw payload
       still does not go through it.
 

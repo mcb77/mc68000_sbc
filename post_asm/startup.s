@@ -712,7 +712,10 @@ CHECKSUM_DONE:
 ; vasm: No spaces after commas, m68000 mode
 ; ========================================
 
-BUFFER    SET $2000
+; After the hold marker at $000400. The string reader writes the
+; terminating zero one byte past the 32 stored characters.
+BUFFER     SET HOLD_SIG+8
+BUFFER_LEN SET 32
 
 MONITOR_START:
     LEA WELCOME,A0
@@ -723,7 +726,7 @@ MONITOR:
     LEA PROMPT,A0
     JSR SERIAL_STRING        ; Print "> "
     LEA BUFFER,A0
-    MOVE.L #32,D0            ; 32-byte buffer
+    MOVE.L #BUFFER_LEN,D0
     JSR SERIAL_RX_STRING   ; Get command
     LEA BUFFER,A0
 ;    JSR SERIAL_STRING
