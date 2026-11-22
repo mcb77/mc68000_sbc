@@ -101,102 +101,31 @@ ROM_TEST_DONE:
 
 ; ================================================================
 ; RAM TEST
-; Tests 256 bytes starting at RAM_TEST_BASE
+; Covers the 64 KB SRAM except the vector page at $000000-$0003FF.
+; That page is already the live table, and these loops call the serial
+; routines. The stack starts at $000FFFFE, so the top 4 KB is tested
+; only after A7 moves into RAM that has already passed. The last pattern
+; is left in place.
 ; ================================================================
-RAM_TEST_BASE SET  $000400    ; Start of your .data (safe if we restore)
-RAM_TEST_SIZE SET  30720        ; 256 bytes = 64 longwords
+RAM_LO       SET  $00000400
+RAM_STK      SET  $0000F000
+RAM_LO_DBRA  SET  ((RAM_STK-RAM_LO)/4-1)
+RAM_HI_DBRA  SET  (($00010000-RAM_STK)/4-1)
+STACK_SAFE   SET  $00004000
 
-    ; --- Save .data area if needed (optional, skip for speed) ---
-    ; We'll test in .data, then restore from ROM later if critical
+    LEA     RAM_LO,A0
+    MOVE.W  #RAM_LO_DBRA,D0
+    JSR     RAM_TEST_RANGE
 
-    LEA     POST_RAM_55,A0     ; Load string address
-    JSR     SERIAL_STRING     ; Transmit string
-    ; --- Test 1: 0x55 / 0xAA Pattern ---
-    LEA RAM_TEST_BASE,A0
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-    MOVE.L #$55555555,D1
-RAM_FILL_55:
-    MOVE.L D1,(A0)+
-    DBRA D0,RAM_FILL_55
+    MOVE.L  #STACK_SAFE,A7
+    LEA     POST_RAM_TOP,A0
+    JSR     SERIAL_STRING
+    LEA     RAM_STK,A0
+    MOVE.W  #RAM_HI_DBRA,D0
+    JSR     RAM_TEST_RANGE
+    MOVE.L  #$000FFFFE,A7
 
-    LEA.L RAM_TEST_BASE,A0
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-RAM_CHECK_55:
-    MOVE.L (A0)+,D2
-    CMP.L D1,D2
-    BNE RAM_ERROR_5
-    DBRA D0,RAM_CHECK_55
-
-    LEA     POST_RAM_AA,A0     ; Load string address
-    JSR     SERIAL_STRING     ; Transmit string
-; --- Test 2: 0xAA ---
-    LEA.L RAM_TEST_BASE,A0
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-    MOVE.L #$AAAAAAAA,D1
-RAM_FILL_AA:
-    MOVE.L D1,(A0)+
-    DBRA D0,RAM_FILL_AA
-
-    LEA.L RAM_TEST_BASE,A0
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-RAM_CHECK_AA:
-    MOVE.L (A0)+,D2
-    CMP.L D1,D2
-    BNE RAM_ERROR_5
-    DBRA D0,RAM_CHECK_AA
-
-    LEA     POST_RAM_WALKING_1S,A0     ; Load string address
-    JSR     SERIAL_STRING     ; Transmit string
-; --- Test 3: Walking 1s (detect address faults) ---
-    MOVE.W #31,D3                        ; Test bits 0..31
-WALKING_LOOP:
-    MOVE.W D3,D4
-    MOVE.L #1,D1
-    LSL.L D4,D1                         ; D1 = 1 << bit
-    MOVE.L D1,D2
-
-    ; --- Fill phase ---
-    LEA.L RAM_TEST_BASE,A0              ; Reset pointer each time
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-WALKING_FILL:
-    MOVE.L D2,(A0)+
-    DBRA D0,WALKING_FILL
-
-    ; --- Verify phase ---
-    LEA.L RAM_TEST_BASE,A0              ; Reset pointer again
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-WALKING_CHECK:
-    MOVE.L (A0)+,D2
-    CMP.L D1,D2
-    BNE RAM_ERROR_5
-    DBRA D0,WALKING_CHECK
-
-    SUBQ.W #1,D3
-    BPL WALKING_LOOP
-
-    LEA     POST_RAM_ADDRESS_IN_DATA,A0     ; Load string address
-    JSR     SERIAL_STRING     ; Transmit string
-; --- Test 4: Address-in-Data (unique per location) ---
-    LEA.L RAM_TEST_BASE,A0
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-ADDR_FILL:
-    MOVE.L A0,D1
-    EOR.L #RAM_TEST_BASE,D1         ; D1 = offset from base
-    MOVE.L D1,(A0)+
-    DBRA D0,ADDR_FILL
-
-    LEA.L RAM_TEST_BASE,A0
-    MOVE.W #(RAM_TEST_SIZE/4-1),D0
-ADDR_CHECK:
-    MOVE.L A0,D1
-    EOR.L #RAM_TEST_BASE,D1
-    MOVE.L (A0)+,D2
-    CMP.L D1,D2
-    BNE RAM_ERROR_5
-    DBRA D0,ADDR_CHECK
-
-; --- RAM TEST PASS ---
-    BRA.S RAM_TEST_DONE
+    BRA     RAM_TEST_DONE
 
 RAM_ERROR_5:
     LEA     POST_RAM_ERROR,A0     ; Load string address
@@ -210,6 +139,93 @@ RAM_TEST_DONE:
 ;    BRA BLINK_FOREVER
 
     BRA     MONITOR_START
+
+; One range. A0 = first long, D0.W = long count - 1.
+; A2 keeps the base and D5 the count. Both survive SERIAL_STRING.
+; A failure branches to RAM_ERROR_5 and does not return.
+RAM_TEST_RANGE:
+    MOVE.L  A0,A2
+    MOVE.W  D0,D5
+
+    LEA     POST_RAM_55,A0
+    JSR     SERIAL_STRING
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+    MOVE.L  #$55555555,D1
+R55_FILL:
+    MOVE.L  D1,(A0)+
+    DBRA    D0,R55_FILL
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+R55_CHECK:
+    MOVE.L  (A0)+,D2
+    CMP.L   D1,D2
+    BNE     RAM_ERROR_5
+    DBRA    D0,R55_CHECK
+
+    LEA     POST_RAM_AA,A0
+    JSR     SERIAL_STRING
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+    MOVE.L  #$AAAAAAAA,D1
+RAA_FILL:
+    MOVE.L  D1,(A0)+
+    DBRA    D0,RAA_FILL
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+RAA_CHECK:
+    MOVE.L  (A0)+,D2
+    CMP.L   D1,D2
+    BNE     RAM_ERROR_5
+    DBRA    D0,RAA_CHECK
+
+    LEA     POST_RAM_WALKING_1S,A0
+    JSR     SERIAL_STRING
+    MOVE.W  #31,D3
+RWALK:
+    ; LSL counts modulo 64 across all of D4. A dirty high word would
+    ; walk the wrong bit. MOVE.W does not clear it.
+    CLR.L   D4
+    MOVE.W  D3,D4
+    MOVE.L  #1,D1
+    LSL.L   D4,D1
+    MOVE.L  D1,D2
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+RWALK_FILL:
+    MOVE.L  D2,(A0)+
+    DBRA    D0,RWALK_FILL
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+RWALK_CHECK:
+    MOVE.L  (A0)+,D2
+    CMP.L   D1,D2
+    BNE     RAM_ERROR_5
+    DBRA    D0,RWALK_CHECK
+    SUBQ.W  #1,D3
+    BPL     RWALK
+
+    LEA     POST_RAM_ADDRESS_IN_DATA,A0
+    JSR     SERIAL_STRING
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+RADDR_FILL:
+    MOVE.L  A0,D1
+    MOVE.L  A2,D2
+    EOR.L   D2,D1
+    MOVE.L  D1,(A0)+
+    DBRA    D0,RADDR_FILL
+    MOVE.L  A2,A0
+    MOVE.W  D5,D0
+RADDR_CHECK:
+    MOVE.L  A0,D1
+    MOVE.L  A2,D2
+    EOR.L   D2,D1
+    MOVE.L  (A0)+,D2
+    CMP.L   D1,D2
+    BNE     RAM_ERROR_5
+    DBRA    D0,RADDR_CHECK
+    RTS
 
 ; ========================================
 ; FULLY STACK-LESS BLINK (NO JSR/RTS AT ALL)
@@ -1038,6 +1054,8 @@ POST_RAM_WALKING_1S:
     DC.B    "RAM TEST WALKING 1S", 10, 0
 POST_RAM_ADDRESS_IN_DATA:
     DC.B    "RAM TEST ADDRESS IN DATA", 10, 0
+POST_RAM_TOP:
+    DC.B    "RAM TEST TOP", 10, 0
 
 POST_RAM_ERROR:
     DC.B    "RAM ERROR", 10, 0

@@ -11,8 +11,9 @@ Measured on the current burn, 9600 8N1, `/dev/ttyACM0`:
 - `write <addr>,<byte>` moves one byte per round trip, about 30 bytes/second.
   The 7906-byte BASIC image takes about 260 seconds. The core takes about 140.
 - A guest that never `RTS` owns the serial line until the reset button.
-  POST then stamps `$000400` for 30720 bytes, so `$000400`–`$007BFF` is gone.
-  That range holds the BASIC image (`$4400`) and the core (`$8000`).
+  POST then fills `$000400`–`$00FFFF` and leaves the last pattern there, so a
+  payload anywhere above the vector page is gone. The BASIC image is at
+  `$4400` and the core at `$8000`.
 - `checksum` is a `DBRA` loop, so the count argument is one less than the
   number of bytes. `checksum 004400,1EE1` sums the 7906-byte image.
 - Success for `write` is the bytes `Ok` LF. The prompt is `"> "` with no
@@ -56,18 +57,16 @@ builds call absolute addresses from the current burn (`SERIAL_TX` `$00100648`,
 
 ## Keep a payload across reset
 
-The RAM-test header says the block is 256 bytes and safe if restored. The code
-tests 30720 bytes from `$000400` and leaves the last pattern in place. Nothing
-is restored. `$007C00`–`$00EFFF` is outside that test and below the monitor
-stack.
+The test covers `$000400`–`$00FFFF` and leaves the last pattern in place.
+Nothing is restored. There is no untested gap to hide a signature in, so
+`hold` has to read it before the fill.
 
 - [ ] `hold` writes a two-longword signature at `$007E00`. The next reset sees
-      it, skips the fill, and prints a short kept-RAM line. The signature stays
-      until `release`, so a guest that will not `RTS` can be reset and `jump`ed
-      again without another upload.
+      it before the fill, skips the test, and prints a short kept-RAM line.
+      The signature stays until `release`, so a guest that will not `RTS` can
+      be reset and `jump`ed again without another upload.
 - [ ] With no signature, POST fills RAM as it does now.
 - [ ] `ramtest` runs the destructive test on demand.
-- [ ] Fix the header comment: 30720 bytes, last pattern left in place.
 
 ## One reply shape
 
@@ -92,8 +91,8 @@ shared pin low. The one-second wait is the whole turnaround on a small test.
 `BUFFER` is `$2000`, 32 bytes. That address is inside the 16 KB guest window
 the emulator uses at `$000400`, so every monitor command writes guest RAM.
 
-- [ ] Move the buffer to `$007C00`, above the RAM test and clear of the hold
-      signature at `$007E00`.
+- [ ] Move the buffer to `$007C00`, clear of the hold signature at `$007E00`.
+      POST has finished by the time the monitor uses the buffer.
 - [ ] Give it room for a longer header if `load` needs one. The raw payload
       still does not go through it.
 
