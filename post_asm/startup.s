@@ -14,6 +14,16 @@ RESET_VECTORS:
     DC.L    DEFAULT_HANDLER
     ENDR
 
+; Fixed entries for uploaded code. This address stays put when the
+; routines below move. Call with MOVE.L (slot).L,An / JSR (An).
+;   +0 transmit, +4 receive, +8 poll, +12 timed receive
+    ORG     $100400
+ENTRIES:
+    DC.L    SERIAL_TX
+    DC.L    SERIAL_RX
+    DC.L    SERIAL_POLL
+    DC.L    SERIAL_RX_TIMED
+
 ; Startup code
 START:
     MOVE.W  #$2700,SR      ; Supervisor mode, disable interrupts
@@ -311,8 +321,19 @@ DELAY_LOOP:
 ; Input: $200000 bit 0 (RX pin, adjust as needed)
 ; Uses: Stack for subroutines, 4.8 MHz clock
 ; ========================================
+; Blocking receive. A bad stop bit goes back to the start-bit wait.
+; D0 on the stack is the timeout: -1 waits forever. SERIAL_RX_TIMED
+; stores a poll count there and returns -1 in D1.B on timeout or a bad
+; stop. The sample delays below are the same on both entries.
+RX_TIMEOUT SET 2000                   ; about 40 ms of start-bit polls
+
 SERIAL_RX:
-    MOVEM.L D0/D2-D4,-(SP)    ; Save registers
+    MOVEQ #-1,D0
+    BRA.S RX_SAVE
+SERIAL_RX_TIMED:
+    MOVE.L #RX_TIMEOUT,D0
+RX_SAVE:
+    MOVEM.L D0/D2-D4,-(SP)    ; (SP) is the timeout
     ; --- Wait for start bit (0 = low) ---
 SERIAL_RX_WAIT_START:
     MOVE.W ($200000),D4       ; Read RX pin
@@ -322,8 +343,15 @@ SERIAL_RX_WAIT_START:
     NOP
     NOP
     AND.W #1,D4
-    BNE.S SERIAL_RX_WAIT_START          ; Loop until low
+    BEQ.S SERIAL_RX_START
+    TST.L (SP)
+    BMI.S SERIAL_RX_WAIT_START          ; -1: wait forever
+    SUBQ.L #1,(SP)
+    BNE.S SERIAL_RX_WAIT_START
+    MOVEQ #-1,D1
+    BRA.S SERIAL_RX_EXIT
 
+SERIAL_RX_START:
     ; --- 1.5 bit delay to sample mid-bit ---
     MOVE.L #35,D0             ; ~750 cycles (1.5 bit)
 SERIAL_RX_START_DELAY:
@@ -360,8 +388,20 @@ SERIAL_RX_BIT_DELAY:
     NOP
     AND.W #1,D4
     CMP.W #1,D4               ; Verify stop bit
-    BNE.S SERIAL_RX_WAIT_START          ; Invalid, restart
+    BEQ.S SERIAL_RX_EXIT
+    TST.L (SP)
+    BMI.S SERIAL_RX_WAIT_START          ; blocking: resync
+    MOVEQ #-1,D1
+SERIAL_RX_EXIT:
     MOVEM.L (SP)+,D0/D2-D4    ; Restore registers
+    RTS
+
+; Sample the shared pin and return. Bit 0 of D1 is the pin, Z reflects it.
+; A word read: the latch is on D0, not the even byte. Does not wait.
+SERIAL_POLL:
+    MOVEQ #0,D1
+    MOVE.W ($200000),D1
+    AND.W #1,D1
     RTS
 
 ; ========================================
@@ -393,7 +433,7 @@ SRS_DONE:
 
 ; ========================================
 ; SERIAL OUTPUT (9600 baud, 8N1)
-; Input: D1.B = byte to send
+; Input: D1.B = byte to send. D1 is preserved. D0/D2-D4 are saved.
 ; Uses: $200000 bit 0
 ; ========================================
 SERIAL_TX:

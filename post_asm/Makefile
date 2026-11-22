@@ -45,12 +45,13 @@ $(HIGH_BIN) $(LOW_BIN): $(BIN) $(SPLIT_SCRIPT)
 	$(PYTHON) $(CHECKSUM_SCRIPT) $<
 	$(PYTHON) $(SPLIT_SCRIPT) $<
 
-# Assemble assembly files
+# Assemble assembly files. The listing feeds entries.inc.
 %.bin: %.s
-	$(AS) $(ASFLAGS) $< -o $@
+	$(AS) $(ASFLAGS) -L $*.lst $< -o $@
+	$(PYTHON) ./gen_entries.py $*.lst entries.inc
 
 # Clean build artifacts
 clean:
-	rm -f $(BIN) $(HIGH_BIN) $(LOW_BIN)
+	rm -f $(BIN) $(HIGH_BIN) $(LOW_BIN) startup.lst entries.inc
 
 .PHONY: all clean

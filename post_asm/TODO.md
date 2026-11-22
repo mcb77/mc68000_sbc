@@ -39,23 +39,21 @@ which leaves the LED on. A word read tested with `AND.W #1` is the pin.
 
 ## Fixed entries for uploaded code
 
-`SERIAL_TX` and `SERIAL_RX` move every time the monitor is edited. The RAM
-builds call absolute addresses from the current burn (`SERIAL_TX` `$00100648`,
-`SERIAL_RX` `$001005BE`).
+The routine addresses move every time the monitor is edited. Uploaded code
+calls the longword table at `$100400`. `entries.inc` is generated from the
+vasm listing and the build fails if `ENTRIES` is not that address.
 
-- [ ] Put a longword table at `$100400`, before `START`, and leave it there
-      when code below it grows. First entries: transmit, receive, poll,
+- [x] Longword table at `$100400`, before `START`: transmit, receive, poll,
       timed receive.
-- [ ] Poll samples with `MOVE.W ($200000)` and `AND.W #1`, returns that bit,
-      and waits for nothing.
-- [ ] Timed receive has the same sample points as `SERIAL_RX`. On timeout or a
-      bad stop bit it returns `-1` in `D1.B`. `SERIAL_RX_STRING` already checks
-      for that value. The current `SERIAL_RX` waits forever, and a bad stop bit
-      branches back to the start-bit wait.
-- [ ] Transmit keeps today's contract: byte in `D1.B`, `D1` preserved,
+- [x] Poll samples with `MOVE.W ($200000)` and `AND.W #1`, returns that bit
+      in `D1`, and waits for nothing.
+- [x] Timed receive uses the same sample delays as `SERIAL_RX`. On timeout
+      or a bad stop bit it returns `-1` in `D1.B`. Blocking `SERIAL_RX` still
+      waits, and a bad stop bit returns to the start-bit wait.
+      `SERIAL_RX_STRING` already retries on `-1`.
+- [x] Transmit keeps its contract: byte in `D1.B`, `D1` preserved,
       `D0`/`D2`–`D4` saved.
-- [ ] Emit an include file of those addresses from the vasm listing so a RAM
-      program does not hard-code a burn.
+- [x] `gen_entries.py` writes `entries.inc` from the listing.
 
 ## Keep a payload across reset
 
