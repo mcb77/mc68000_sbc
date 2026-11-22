@@ -61,12 +61,14 @@ The test covers `$000400`–`$00FFFF` and leaves the last pattern in place.
 Nothing is restored. There is no untested gap to hide a signature in, so
 `hold` has to read it before the fill.
 
-- [ ] `hold` writes a two-longword signature at `$007E00`. The next reset sees
-      it before the fill, skips the test, and prints a short kept-RAM line.
-      The signature stays until `release`, so a guest that will not `RTS` can
-      be reset and `jump`ed again without another upload.
-- [ ] With no signature, POST fills RAM as it does now.
-- [ ] `ramtest` runs the destructive test on demand.
+- [x] `hold` writes a two-longword signature at `$000400` (`HOLD` / `SIG!`),
+      the first two longs of the system page `$000400`–`$0007FF`. Payloads
+      start at `$000800`. The next reset sees the signature before the fill,
+      skips the test, and prints `RAM KEPT`. The signature stays until
+      `release`.
+- [x] With no signature, POST fills RAM as it does now.
+- [x] `ramtest` runs the destructive test on demand. It does not return
+      through the stack, because the test fills that stack.
 
 ## One reply shape
 
@@ -91,15 +93,15 @@ shared pin low. The one-second wait is the whole turnaround on a small test.
 `BUFFER` is `$2000`, 32 bytes. That address is inside the 16 KB guest window
 the emulator uses at `$000400`, so every monitor command writes guest RAM.
 
-- [ ] Move the buffer to `$007C00`, clear of the hold signature at `$007E00`.
-      POST has finished by the time the monitor uses the buffer.
+- [ ] Move the buffer into the system page at `$000400`, after the hold
+      signature. POST has finished by the time the monitor uses the buffer.
 - [ ] Give it room for a longer header if `load` needs one. The raw payload
       still does not go through it.
 
 ## Help text
 
-- [ ] Document `load`, `hold`, `release`, and `ramtest` next to the existing
-      commands.
+- [ ] Document `load` next to the existing commands. `hold`, `release`, and
+      `ramtest` are already in the help text.
 - [ ] State that bit 0 at `$200000` is TX, RX, and the LED, that idle is mark,
       and that a byte can be received while the monitor is outside `SERIAL_TX`.
       A held Ctrl-C is what a guest break poll can see.

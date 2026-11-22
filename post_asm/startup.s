@@ -107,12 +107,29 @@ ROM_TEST_DONE:
 ; only after A7 moves into RAM that has already passed. The last pattern
 ; is left in place.
 ; ================================================================
-RAM_LO       SET  $00000400
+; $000400-$0007FF is the system page. Payloads start at SYS_END.
+; The hold marker is the first two longs. POST still tests this page
+; when the marker is absent; hold is read before that fill.
+SYS_BASE     SET  $00000400
+SYS_END      SET  $00000800
+RAM_LO       SET  SYS_BASE
 RAM_STK      SET  $0000F000
 RAM_LO_DBRA  SET  ((RAM_STK-RAM_LO)/4-1)
 RAM_HI_DBRA  SET  (($00010000-RAM_STK)/4-1)
 STACK_SAFE   SET  $00004000
+HOLD_SIG     SET  SYS_BASE
+HOLD_MAGIC0  SET  $484F4C44          ; 'HOLD'
+HOLD_MAGIC1  SET  $53494721          ; 'SIG!'
 
+    CMP.L   #HOLD_MAGIC0,(HOLD_SIG).L
+    BNE.S   RAM_DO_TEST
+    CMP.L   #HOLD_MAGIC1,(HOLD_SIG+4).L
+    BNE.S   RAM_DO_TEST
+    LEA     POST_RAM_KEPT,A0
+    JSR     SERIAL_STRING
+    BRA     MONITOR_START
+
+RAM_DO_TEST:
     LEA     RAM_LO,A0
     MOVE.W  #RAM_LO_DBRA,D0
     JSR     RAM_TEST_RANGE
@@ -758,6 +775,65 @@ NOT_JUMP:
 NOT_CHECKSUM:
     MOVE.L A0,A1
     CMP.B #'h',(A1)+
+    BNE.S NOT_HOLD
+    CMP.B #'o',(A1)+
+    BNE.S NOT_HOLD
+    CMP.B #'l',(A1)+
+    BNE.S NOT_HOLD
+    CMP.B #'d',(A1)+
+    BNE.S NOT_HOLD
+    CMP.B #0,(A1)+
+    BNE.S NOT_HOLD
+    MOVE.L #HOLD_MAGIC0,(HOLD_SIG).L
+    MOVE.L #HOLD_MAGIC1,(HOLD_SIG+4).L
+    LEA OK,A0
+    JSR SERIAL_STRING
+    BRA MONITOR
+NOT_HOLD:
+    MOVE.L A0,A1
+    CMP.B #'r',(A1)+
+    BNE.S NOT_RELEASE
+    CMP.B #'e',(A1)+
+    BNE.S NOT_RELEASE
+    CMP.B #'l',(A1)+
+    BNE.S NOT_RELEASE
+    CMP.B #'e',(A1)+
+    BNE.S NOT_RELEASE
+    CMP.B #'a',(A1)+
+    BNE.S NOT_RELEASE
+    CMP.B #'s',(A1)+
+    BNE.S NOT_RELEASE
+    CMP.B #'e',(A1)+
+    BNE.S NOT_RELEASE
+    CMP.B #0,(A1)+
+    BNE.S NOT_RELEASE
+    CLR.L (HOLD_SIG).L
+    CLR.L (HOLD_SIG+4).L
+    LEA OK,A0
+    JSR SERIAL_STRING
+    BRA MONITOR
+NOT_RELEASE:
+    MOVE.L A0,A1
+    CMP.B #'r',(A1)+
+    BNE.S NOT_RAMTEST
+    CMP.B #'a',(A1)+
+    BNE.S NOT_RAMTEST
+    CMP.B #'m',(A1)+
+    BNE.S NOT_RAMTEST
+    CMP.B #'t',(A1)+
+    BNE.S NOT_RAMTEST
+    CMP.B #'e',(A1)+
+    BNE.S NOT_RAMTEST
+    CMP.B #'s',(A1)+
+    BNE.S NOT_RAMTEST
+    CMP.B #'t',(A1)+
+    BNE.S NOT_RAMTEST
+    CMP.B #0,(A1)+
+    BNE.S NOT_RAMTEST
+    BRA RAM_DO_TEST
+NOT_RAMTEST:
+    MOVE.L A0,A1
+    CMP.B #'h',(A1)+
     BNE.S NOT_HELP
     CMP.B #'e',(A1)+
     BNE.S NOT_HELP
@@ -1061,6 +1137,8 @@ POST_RAM_ERROR:
     DC.B    "RAM ERROR", 10, 0
 POST_RAM_OK:
     DC.B    "RAM OK", 10, 0
+POST_RAM_KEPT:
+    DC.B    "RAM KEPT", 10, 0
 POST_ROM_ERROR:
     DC.B    "ROM ERROR", 10, 0
 POST_ROM_OK:
@@ -1078,8 +1156,11 @@ HELP:
     DC.B "Help:",10
     DC.B " - checksum <addr>,<count>",10
     DC.B " - dump <addr>,<count>",10
+    DC.B " - hold",10
     DC.B " - jump <addr>",10
+    DC.B " - ramtest",10
     DC.B " - read <addr>",10
+    DC.B " - release",10
     DC.B " - write <addr>,<byte>",10
     DC.B 0
 HELP_MONITOR_START:
